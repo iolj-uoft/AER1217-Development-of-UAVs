@@ -27,14 +27,14 @@ quadrotor_config:
   
   task: stabilization
   task_info:
-    stabilization_goal: [-0.5, 2.0, 1.0]  # Final goal (target position in x-y-z)
+    stabilization_goal: [0, -4, 0.03]  # Final goal (target position in x-y-z)
     stabilization_goal_tolerance: 0.15
 
   # Nominal (pre-randomization) initial state
   init_state:
-    init_x: -1.0
+    init_x: 0.0
     init_x_dot: 0
-    init_y: -3.0
+    init_y: -4.0
     init_y_dot: 0
     init_z: 0.03
     init_z_dot: 0

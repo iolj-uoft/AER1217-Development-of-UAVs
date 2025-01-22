@@ -114,7 +114,6 @@ class Controller():
         ## visualization
         # Plot trajectory in each dimension and 3D.
         plot_trajectory(t_scaled, self.waypoints, self.ref_x, self.ref_y, self.ref_z)
-
         # Draw the trajectory on PyBullet's GUI.
         draw_trajectory(initial_info, self.waypoints, self.ref_x, self.ref_y, self.ref_z)
 
@@ -132,31 +131,33 @@ class Controller():
         # initial waypoint
         if use_firmware:
             waypoints = [(self.initial_obs[0], self.initial_obs[2], initial_info["gate_dimensions"]["tall"]["height"])]  # Height is hardcoded scenario knowledge.
+            waypoints = [(0, -4, 1)]
         else:
             waypoints = [(self.initial_obs[0], self.initial_obs[2], self.initial_obs[4])]
 
         # Example code: hardcode waypoints 
-        waypoints.append((-0.5, -3.0, 2.0))
-        waypoints.append((-0.5, -2.0, 2.0))
-        waypoints.append((-0.5, -1.0, 2.0))
-        waypoints.append((-0.5,  0.0, 2.0))
-        waypoints.append((-0.5,  1.0, 2.0))
-        waypoints.append((-0.5,  2.0, 2.0))
-        waypoints.append([initial_info["x_reference"][0], initial_info["x_reference"][2], initial_info["x_reference"][4]])
+        waypoints.append((1, -3.0, 1))
+        waypoints.append((0, -2.0, 1))
+        waypoints.append((-1, -3.0, 1))
+        waypoints.append((0, -4.0, 1))
 
         # Polynomial fit.
         self.waypoints = np.array(waypoints)
-        deg = 6
+        deg = 4
         t = np.arange(self.waypoints.shape[0])
-        fx = np.poly1d(np.polyfit(t, self.waypoints[:,0], deg))
-        fy = np.poly1d(np.polyfit(t, self.waypoints[:,1], deg))
+        # fx = np.poly1d(np.polyfit(t, self.waypoints[:,0], deg))
+        # fy = np.poly1d(np.polyfit(t, self.waypoints[:,1], deg))
         fz = np.poly1d(np.polyfit(t, self.waypoints[:,2], deg))
         duration = 15
         t_scaled = np.linspace(t[0], t[-1], int(duration*self.CTRL_FREQ))
-        self.ref_x = fx(t_scaled)
-        self.ref_y = fy(t_scaled)
+        print(t_scaled)
+        self.ref_x = ecu.fx(0, -3, r=1, timesteps=int(duration*self.CTRL_FREQ))
+        self.ref_y = ecu.fy(0, -3, r=1, timesteps=int(duration*self.CTRL_FREQ))
         self.ref_z = fz(t_scaled)
-
+        
+        # For LAB 1, circular path
+        
+        
         #########################
         # REPLACE THIS (END) ####
         #########################
