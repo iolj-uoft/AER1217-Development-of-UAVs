@@ -43,7 +43,7 @@ class PIDController():
 
     def __init__(self,
                  g: float = 9.8,
-                 m: float = 0.027,
+                 m: float = 0.036,
                  kf: float = 3.16e-10,
                  km: float = 7.94e-12,
                  pwm2rpm_scale: float = 0.2685,
@@ -76,6 +76,8 @@ class PIDController():
             d_coeff_tor (ndarray, optional): attitude derivative coefficients.
 
         """
+        self.grav = g
+        self.mass = m
         self.GRAVITY = g * m # The gravitational force (M*g) acting on each drone.
         self.KF = kf
         self.KM = km
@@ -114,6 +116,7 @@ class PIDController():
                         target_pos,
                         target_rpy=np.zeros(3),
                         target_vel=np.zeros(3),
+                        target_acc=np.zeros(3),
                         target_rpy_rates=np.zeros(3)
                         ):
         """Computes the PID control action (as RPMs) for a single drone.
@@ -138,15 +141,29 @@ class PIDController():
             float: The current yaw error.
 
         """
+        print("----------------_compute_force_and_euler------------------")
         self.control_counter += 1
-        thrust, computed_target_rpy, pos_e = self._compute_force_and_euler(control_timestep,
+        # thrust, computed_target_rpy, pos_e = self._compute_force_and_euler(control_timestep,
+        #                                                                    cur_pos,
+        #                                                                    cur_quat,
+        #                                                                    cur_vel,
+        #                                                                    target_pos,
+        #                                                                    target_rpy,
+        #                                                                    target_vel,
+        #                                                                    target_acc
+        #                                                                    )
+        thrust, computed_target_rpy, pos_e = self._compute_desired_force_and_euler(control_timestep,
                                                                            cur_pos,
                                                                            cur_quat,
                                                                            cur_vel,
                                                                            target_pos,
                                                                            target_rpy,
-                                                                           target_vel
+                                                                           target_vel,
+                                                                           target_acc
                                                                            )
+
+
+
         rpm = self._compute_rpms(control_timestep,
                                  thrust,
                                  cur_quat,
@@ -156,6 +173,67 @@ class PIDController():
         cur_rpy = p.getEulerFromQuaternion(cur_quat)
         return rpm, pos_e, computed_target_rpy[2] - cur_rpy[2]
 
+    #TODO: geometric control
+    def _compute_desired_force_and_euler(self,
+                                 control_timestep,
+                                 cur_pos,
+                                 cur_quat,
+                                 cur_vel,
+                                 target_pos,
+                                 target_rpy,
+                                 target_vel,
+                                 target_acc
+                                 ):
+        desired_acc = target_acc
+        desired_yaw = target_rpy[2]
+
+        cur_rot = np.array(p.getMatrixFromQuaternion(cur_quat)).reshape(3, 3)
+        self.P_COEFF_GEO = np.array([10.0, 10.0, 5.0])
+        self.D_COEFF_GEO = np.array([4.0, 4.0, 2.0])
+        self.P_ERR_MAX= np.array([0.6, 0.6, 0.3])
+        self.V_ERR_MAX = np.array([1.0, 1.0, 1.0])
+
+        pos_e = target_pos - cur_pos
+        vel_e = target_vel - cur_vel
+
+        pos_e = np.clip(pos_e, -self.P_ERR_MAX, self.P_ERR_MAX)
+        vel_e = np.clip(vel_e, -self.V_ERR_MAX, self.V_ERR_MAX)
+
+        acc_cmd = np.multiply(self.P_COEFF_GEO, pos_e) \
+                  + np.multiply(self.D_COEFF_GEO, vel_e) \
+                  + desired_acc \
+                  + np.array([0, 0, self.grav])
+        acc_norm = np.linalg.norm(acc_cmd)      
+        thrust_cmd = acc_norm * self.mass
+
+        # scalar_thrust = max(0., np.dot(thrust_cmd, cur_rot[:, 2]))
+        thrust = (math.sqrt(thrust_cmd / (4*self.KF)) - self.PWM2RPM_CONST) / self.PWM2RPM_SCALE
+
+        q_c = p.getQuaternionFromEuler([0,0,desired_yaw])
+        q_c_rot = np.array(p.getMatrixFromQuaternion(q_c)).reshape(3, 3) 
+        x_c = q_c_rot.dot(np.array([1, 0, 0]))
+        y_c = q_c_rot.dot(np.array([0, 1, 0]))
+ 
+        z_B = acc_cmd / acc_norm
+        x_B = np.cross(y_c, z_B) / np.linalg.norm(np.cross(y_c, z_B))
+        y_B = np.cross(z_B, x_B) / np.linalg.norm(np.cross(z_B, x_B))
+        desired_rot = (np.vstack([x_B, y_B, z_B])).transpose()
+
+        # # compute bodyrate command
+        # self.P_COEFF_ATT_XY = 0.0
+        # self.P_COEFF_ATT_Z = 0.0
+        # rot_k_matrix = np.diag([self.P_COEFF_ATT_XY, self.P_COEFF_ATT_XY, self.P_COEFF_ATT_Z])
+        # rot_e = np.dot((cur_rot.transpose()), desired_rot)
+        # q_e = Rotation.from_matrix(rot_e).as_quat()
+        # tmp = np.array([q_e[0] * q_e[1] - q_e[2] * q_e[3], q_e[0] * q_e[2] - q_e[1] * q_e[3], q_e[3]])
+        # rate_cmd = rot_k_matrix.dot(tmp) * 2.0 / math.sqrt(q_e[0] * q_e[0] + q_e[3] * q_e[3])
+        
+        desired_euler = (Rotation.from_matrix(desired_rot)).as_euler('XYZ', degrees=False)
+        if np.any(np.abs(desired_euler) > math.pi):
+            raise ValueError("\n[ERROR] ctrl it", self.control_counter, "in Control._compute_desired_force_and_euler(), values outside range [-pi,pi]")
+
+        return thrust, desired_euler, pos_e
+
     def _compute_force_and_euler(self,
                                  control_timestep,
                                  cur_pos,
@@ -163,7 +241,8 @@ class PIDController():
                                  cur_vel,
                                  target_pos,
                                  target_rpy,
-                                 target_vel
+                                 target_vel,
+                                 target_acc
                                  ):
         """DSL's CF2.x PID position control.
 
@@ -189,6 +268,7 @@ class PIDController():
         self.integral_pos_e = np.clip(self.integral_pos_e, -2., 2.)
         self.integral_pos_e[2] = np.clip(self.integral_pos_e[2], -0.15, .15)
         # PID target thrust.
+        # self.I_COEFF_FOR = 0.0
         target_thrust = np.multiply(self.P_COEFF_FOR, pos_e) \
                         + np.multiply(self.I_COEFF_FOR, self.integral_pos_e) \
                         + np.multiply(self.D_COEFF_FOR, vel_e) + np.array([0, 0, self.GRAVITY])
@@ -308,8 +388,7 @@ def plot_trajectory(t_scaled,
     ax.set_ylim([-3.5, 3.5])
     ax.set_zlim([0.0, 2.0])
     plt.show(block=False)
-    # plt.pause(2)
-    input("Press enter to continue...")
+    plt.pause(2)
     plt.close()
 
 def draw_trajectory(initial_info,
@@ -341,8 +420,9 @@ def thrusts(controller,
             ctrl_timestep,
             kf,
             obs,
-            target,
-            target_v
+            target_p,
+            target_v,
+            target_a
             ):
     """Compute thrusts from PID control.
 
@@ -352,7 +432,8 @@ def thrusts(controller,
                                             cur_quat=np.array(p.getQuaternionFromEuler([obs[6],obs[7],obs[8]])),
                                             cur_vel=np.array([obs[1],obs[3],obs[5]]),
                                             cur_ang_vel=np.array([obs[9],obs[10],obs[11]]),
-                                            target_pos=target,
-                                            target_vel=target_v
+                                            target_pos=target_p,
+                                            target_vel=target_v,
+                                            target_acc=target_a
                                             )
     return kf * rpms**2
