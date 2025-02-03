@@ -150,12 +150,12 @@ class Controller():
         fz = np.poly1d(np.polyfit(t, self.waypoints[:,2], deg))
         duration = 15
         t_scaled = np.linspace(t[0], t[-1], int(duration*self.CTRL_FREQ))
-        print(t_scaled)
+        
+        # For LAB 1, circular path
         self.ref_x = ecu.fx(0, -3, r=1, timesteps=int(duration*self.CTRL_FREQ))
         self.ref_y = ecu.fy(0, -3, r=1, timesteps=int(duration*self.CTRL_FREQ))
         self.ref_z = fz(t_scaled)
         
-        # For LAB 1, circular path
         
         
         #########################
