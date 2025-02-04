@@ -136,10 +136,27 @@ class GeoController():
         #---------Lab2: Design a geomtric controller--------#
         #---------Task 1: Compute the desired acceration command--------#
         
+        # Create the parameter for the controller (diagnonal matrices)
+        K_pos = np.diag([1.0, 1.0, 1.0])
+        K_vel = np.diag([1.0, 1.0, 1.0])
+        
+        # Calculate the required accelration to keep on the track
+        a_fb = -K_pos @ (pos_e) - K_vel @ (vel_e)
+        a_des = a_fb + desired_acc + self.grav * np.array([[0], [0], [1]])
+        
         #---------Task 2: Compute the desired thrust command--------#
-
+        desired_thrust = self.mass * np.linalg.norm(a_des)
+        
         #---------Task 3: Compute the desired attitude command--------#
-
+        x_c = np.array([np.cos(desired_yaw), np.sin(desired_yaw), 0]).T
+        y_c = np.array([-np.sin(desired_yaw), np.cos(desired_yaw), 0]).T
+        
+        z_B_des = a_des / np.linalg.norm(a_des)
+        x_B_des = np.cross(y_c, z_B_des) / np.linalg.norm(np.cross(y_c, z_B_des))
+        y_B_des = np.cross(z_B_des, x_B_des)
+        
+        R_des = np.column_stack((x_B_des, y_B_des, z_B_des))
+        desired_euler = Rotation.from_matrix(R_des).as_euler('xyz')
     
         return desired_thrust, desired_euler, pos_e
 
