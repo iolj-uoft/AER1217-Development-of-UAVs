@@ -151,11 +151,12 @@ class GeoController():
         #---------Task 1: Compute the desired acceration command--------#
         
         # Create the gain parameters for the controller (diagnonal matrices)
-        K_pos = np.diag([4, 4, 0.5]) # Kp
-        K_vel = np.diag([0.01, 0.01, 0.001]) # Kd
+        K_pos = np.diag([10, 10, 5.0]) # Kp
+        K_vel = np.diag([4.0, 4.0, 2.0]) # Kd
         
         # Calculate the required accelration to keep on the track
-        a_fb = (np.multiply(self.P_COEFF_GEO, pos_e) + np.multiply(self.D_COEFF_GEO, vel_e))
+        # a_fb = (np.multiply(self.P_COEFF_GEO, pos_e) + np.multiply(self.D_COEFF_GEO, vel_e))
+        a_fb = K_pos @ pos_e + K_vel @ vel_e
         a_des = a_fb + desired_acc + np.array([[0], [0], [self.grav]]).reshape(-1)
         print("a_des: ", a_des)
         print("desire_acc: ", desired_acc)
@@ -180,7 +181,8 @@ class GeoController():
         print("x_B_des: ", x_B_des.shape)
         print("y_B_des: ", y_B_des.shape)
         print("z_B_des: ", z_B_des.shape)
-        R_des = np.vstack([x_B_des, y_B_des, z_B_des]).transpose()
+        # R_des = np.vstack([x_B_des, y_B_des, z_B_des]).transpose()
+        R_des = np.column_stack((x_B_des, y_B_des, z_B_des))
         print(R_des)
         desired_euler = Rotation.from_matrix(R_des).as_euler('xyz', degrees=False)
         print("des_angles: ", desired_euler)
