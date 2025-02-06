@@ -126,6 +126,7 @@ class GeoController():
         
         desired_acc = target_acc
         desired_yaw = target_rpy[2]
+        print(desired_yaw)
 
         pos_e = target_pos - cur_pos
         vel_e = target_vel - cur_vel
@@ -150,14 +151,17 @@ class GeoController():
         #---------Task 3: Compute the desired attitude command--------#
         x_c = np.array([np.cos(desired_yaw), np.sin(desired_yaw), 0]).T
         y_c = np.array([-np.sin(desired_yaw), np.cos(desired_yaw), 0]).T
-        
+        print(x_c, y_c)
         z_B_des = a_des / np.linalg.norm(a_des)
         x_B_des = np.cross(y_c, z_B_des) / np.linalg.norm(np.cross(y_c, z_B_des))
         y_B_des = np.cross(z_B_des, x_B_des)
+        print(x_B_des)
+        print(y_B_des)
+        print(z_B_des)
+        R_des = np.column_stack((x_B_des, y_B_des, z_B_des)).reshape(3, 3, 3)
         
-        R_des = np.column_stack((x_B_des, y_B_des, z_B_des))
         desired_euler = Rotation.from_matrix(R_des).as_euler('xyz')
-    
+        
         return desired_thrust, desired_euler, pos_e
 
 

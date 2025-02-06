@@ -69,7 +69,10 @@ class Controller():
 
         """
         # [initial_info["x_reference"][0], initial_info["x_reference"][2], initial_info["x_reference"][4]]
-        self.tolerance =  initial_info["tracking_tolerance"]
+        print(initial_info)
+        self.tolerance = initial_info.get("tracking_tolerance", 0.1)
+        
+        # self.tolerance =  initial_info["tracking_tolerance"]
         self.radius = circle_radius
         # Save environment and control parameters.
         self.CTRL_TIMESTEP = initial_info["ctrl_timestep"]
