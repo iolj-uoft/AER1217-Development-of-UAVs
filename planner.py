@@ -37,6 +37,7 @@ try:
 except ImportError:
     from .edit_this import GeoController
 
+from project_utils import PIDController
 
 class Controller():
     """Template controller class.

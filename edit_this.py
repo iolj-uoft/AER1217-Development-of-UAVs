@@ -126,8 +126,12 @@ class GeoController():
         
         desired_acc = target_acc
         desired_yaw = target_rpy[2]
-        desired_yaw = np.deg2rad(desired_yaw)
         # print(desired_yaw)
+        self.P_COEFF_GEO = np.array([10.0, 10.0, 5.0])
+        self.D_COEFF_GEO = np.array([4.0, 4.0, 2.0])
+        self.P_ERR_MAX= np.array([0.6, 0.6, 0.3])
+        self.V_ERR_MAX = np.array([1.0, 1.0, 1.0])
+        
         pos_e = target_pos - cur_pos
         print("\ntarget_pos: ", target_pos)
         print("current_pos: ", cur_pos)
@@ -137,6 +141,9 @@ class GeoController():
         print("current_vel: ", cur_vel)
         print("vel_e: ", vel_e)
         
+        pos_e = np.clip(pos_e, -self.P_ERR_MAX, self.P_ERR_MAX)
+        vel_e = np.clip(vel_e, -self.V_ERR_MAX, self.V_ERR_MAX)
+        
         desired_thrust = 0
         desired_euler = np.zeros(3)
         
@@ -144,12 +151,12 @@ class GeoController():
         #---------Task 1: Compute the desired acceration command--------#
         
         # Create the gain parameters for the controller (diagnonal matrices)
-        K_pos = np.diag([0.006, 0.006, 0.5]) # Kp
+        K_pos = np.diag([4, 4, 0.5]) # Kp
         K_vel = np.diag([0.01, 0.01, 0.001]) # Kd
         
         # Calculate the required accelration to keep on the track
-        a_fb = (-K_pos @ (pos_e) - K_vel @ (vel_e)).reshape(3, 1)
-        a_des = a_fb + desired_acc.reshape(3, 1) + self.grav * np.array([[0], [0], [1]])
+        a_fb = (np.multiply(self.P_COEFF_GEO, pos_e) + np.multiply(self.D_COEFF_GEO, vel_e))
+        a_des = a_fb + desired_acc + np.array([[0], [0], [self.grav]]).reshape(-1)
         print("a_des: ", a_des)
         print("desire_acc: ", desired_acc)
         #---------Task 2: Compute the desired thrust command--------#
@@ -160,26 +167,22 @@ class GeoController():
         print("Weight (mg):", self.mass * self.grav)
         
         #---------Task 3: Compute the desired attitude command--------#
-        x_c = np.array([np.cos(desired_yaw), np.sin(desired_yaw), 0]).reshape(3, 1)
-        y_c = np.array([-np.sin(desired_yaw), np.cos(desired_yaw), 0]).reshape(3, 1)
+        x_c = np.array([np.cos(desired_yaw), np.sin(desired_yaw), 0])
+        y_c = np.array([-np.sin(desired_yaw), np.cos(desired_yaw), 0])
         # print(x_c, y_c.shape)
-        z_B_des = (a_des / np.linalg.norm(a_des)).reshape(-1)
+        z_B_des = (a_des / np.linalg.norm(a_des))
         # print("z_B: ", z_B_des.shape)
-        cross_product = np.cross(y_c.flatten(), z_B_des)
-        if np.linalg.norm(cross_product) < 1e-3:  # If nearly parallel, adjust y_c slightly
-            y_c += np.array([[0.01], [0.01], [0]])
-            cross_product = np.cross(y_c.flatten(), z_B_des)  # Recalculate
 
-        x_B_des = cross_product / np.linalg.norm(cross_product)
+        x_B_des = np.cross(y_c, z_B_des) / np.linalg.norm(np.cross(y_c, z_B_des))
 
-        y_B_des = np.cross(z_B_des, x_B_des)
+        y_B_des = np.cross(z_B_des, x_B_des) / np.linalg.norm(np.cross(z_B_des, x_B_des))
 
-        print("x_B_des: ", x_B_des)
-        print("y_B_des: ", y_B_des)
-        print("z_B_des: ", z_B_des)
-        R_des = np.column_stack((x_B_des, y_B_des, z_B_des))
+        print("x_B_des: ", x_B_des.shape)
+        print("y_B_des: ", y_B_des.shape)
+        print("z_B_des: ", z_B_des.shape)
+        R_des = np.vstack([x_B_des, y_B_des, z_B_des]).transpose()
         print(R_des)
-        desired_euler = Rotation.from_matrix(R_des).as_euler('xyz', degrees=True)
+        desired_euler = Rotation.from_matrix(R_des).as_euler('xyz', degrees=False)
         print("des_angles: ", desired_euler)
         
         return desired_thrust, desired_euler, pos_e
