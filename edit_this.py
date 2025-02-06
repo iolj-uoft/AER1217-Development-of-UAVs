@@ -131,7 +131,7 @@ class GeoController():
         self.D_COEFF_GEO = np.array([4.0, 4.0, 2.0])
         self.P_ERR_MAX= np.array([0.6, 0.6, 0.3])
         self.V_ERR_MAX = np.array([1.0, 1.0, 1.0])
-        
+        os.system('clear')
         pos_e = target_pos - cur_pos
         print("\ntarget_pos: ", target_pos)
         print("current_pos: ", cur_pos)
@@ -155,7 +155,6 @@ class GeoController():
         K_vel = np.diag([4.0, 4.0, 2.0]) # Kd
         
         # Calculate the required accelration to keep on the track
-        # a_fb = (np.multiply(self.P_COEFF_GEO, pos_e) + np.multiply(self.D_COEFF_GEO, vel_e))
         a_fb = K_pos @ pos_e + K_vel @ vel_e
         a_des = a_fb + desired_acc + np.array([[0], [0], [self.grav]]).reshape(-1)
         print("a_des: ", a_des)
@@ -181,7 +180,6 @@ class GeoController():
         print("x_B_des: ", x_B_des.shape)
         print("y_B_des: ", y_B_des.shape)
         print("z_B_des: ", z_B_des.shape)
-        # R_des = np.vstack([x_B_des, y_B_des, z_B_des]).transpose()
         R_des = np.column_stack((x_B_des, y_B_des, z_B_des))
         print(R_des)
         desired_euler = Rotation.from_matrix(R_des).as_euler('xyz', degrees=False)
