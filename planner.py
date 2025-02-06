@@ -78,6 +78,7 @@ class Controller():
         self.CTRL_TIMESTEP = initial_info["ctrl_timestep"]
         self.CTRL_FREQ = initial_info["ctrl_freq"]
         self.initial_obs = initial_obs
+        print("init obs: ", self.initial_obs)
         self.VERBOSE = verbose
         self.BUFFER_SIZE = buffer_size
 
@@ -210,7 +211,7 @@ class Controller():
         omega = self.omega
         omega2 = omega * omega
         # Compute the reference pos, vel, and acc on the circel
-        ref_pos = np.array([self.radius * math.cos(omega * time), self.radius * math.sin(omega * time), 0.0]) - bias_pos + init_pos
+        ref_pos = np.array([self.radius * math.cos(omega * time), self.radius * math.sin(omega * time), .0]) - bias_pos + init_pos
         ref_vel = np.array([-self.radius * omega * math.sin(omega * time), self.radius * omega * math.cos(omega * time), 0.0])
         ref_acc = np.array([-self.radius * omega2 * math.cos(omega * time), -self.radius * omega2 * math.sin(omega * time), 0.0])
 
