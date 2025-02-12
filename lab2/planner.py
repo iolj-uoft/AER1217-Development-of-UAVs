@@ -71,6 +71,8 @@ class Controller():
         """
         # [initial_info["x_reference"][0], initial_info["x_reference"][2], initial_info["x_reference"][4]]
         print(initial_info)
+        
+        # Initialize and add the tracking tolerance to the initial_info class
         self.tolerance = initial_info.get("tracking_tolerance", 0.1)
         
         # self.tolerance =  initial_info["tracking_tolerance"]

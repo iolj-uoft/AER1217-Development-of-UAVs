@@ -126,7 +126,7 @@ class GeoController():
         
         desired_acc = target_acc
         desired_yaw = target_rpy[2]
-        # print(desired_yaw)
+
         self.P_COEFF_GEO = np.array([10.0, 10.0, 5.0])
         self.D_COEFF_GEO = np.array([4.0, 4.0, 2.0])
         self.P_ERR_MAX= np.array([0.6, 0.6, 0.3])
@@ -141,6 +141,7 @@ class GeoController():
         print("current_vel: ", cur_vel)
         print("vel_e: ", vel_e)
         
+        # Saturate the position and velocity errors to prevent unstable manuevers
         pos_e = np.clip(pos_e, -self.P_ERR_MAX, self.P_ERR_MAX)
         vel_e = np.clip(vel_e, -self.V_ERR_MAX, self.V_ERR_MAX)
         
@@ -149,7 +150,6 @@ class GeoController():
         
         #---------Lab2: Design a geomtric controller--------#
         #---------Task 1: Compute the desired acceration command--------#
-        
         # Create the gain parameters for the controller (diagnonal matrices)
         K_pos = np.diag([10, 10, 5.0]) # Kp
         K_vel = np.diag([4.0, 4.0, 2.0]) # Kd
@@ -159,6 +159,7 @@ class GeoController():
         a_des = a_fb + desired_acc + np.array([[0], [0], [self.grav]]).reshape(-1)
         print("a_des: ", a_des)
         print("desire_acc: ", desired_acc)
+        
         #---------Task 2: Compute the desired thrust command--------#
         desired_thrust = self.mass * np.linalg.norm(a_des)
         
@@ -167,21 +168,19 @@ class GeoController():
         print("Weight (mg):", self.mass * self.grav)
         
         #---------Task 3: Compute the desired attitude command--------#
+        # Compute the desired x-axis direction in the world frame
         x_c = np.array([np.cos(desired_yaw), np.sin(desired_yaw), 0])
+        # Compute the desired y-axis direction in the world frame
         y_c = np.array([-np.sin(desired_yaw), np.cos(desired_yaw), 0])
-        # print(x_c, y_c.shape)
+        # Compute the desired z-axis direction in the body frame
         z_B_des = (a_des / np.linalg.norm(a_des))
-        # print("z_B: ", z_B_des.shape)
 
+        # Compute the desired x-axis direction in the body frame
         x_B_des = np.cross(y_c, z_B_des) / np.linalg.norm(np.cross(y_c, z_B_des))
-
+        # Compute the desired y-axis direction in the body frame
         y_B_des = np.cross(z_B_des, x_B_des) / np.linalg.norm(np.cross(z_B_des, x_B_des))
 
-        print("x_B_des: ", x_B_des.shape)
-        print("y_B_des: ", y_B_des.shape)
-        print("z_B_des: ", z_B_des.shape)
         R_des = np.column_stack((x_B_des, y_B_des, z_B_des))
-        print(R_des)
         desired_euler = Rotation.from_matrix(R_des).as_euler('xyz', degrees=False)
         print("des_angles: ", desired_euler)
         
