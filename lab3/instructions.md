@@ -120,3 +120,9 @@ for cluster in set(labels):
 print("Final target positions:", final_positions)
 ```
 
+# Steps for this LAB:
+1. Fix image distortion
+2. Extract target pixel location
+3. Transform the pixel location to Vicon frame by: transform the pixel coordinates to 3D camera-frame coordinates (use K) -> transform the 3D camera-frame to body frame (T_CB-1) -> transform body frame to vicon frame (use pose data to get T_BV) 
+4. track each target using clustering to identify across images and label it
+5. average the labelled estimation location for targets
