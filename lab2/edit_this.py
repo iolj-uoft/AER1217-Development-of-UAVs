@@ -185,7 +185,7 @@ class GeoController():
         print("des_angles: ", desired_euler)
         
         return desired_thrust, desired_euler, pos_e
-
+        
 
     def _compute_rpms(self,
                       control_timestep,

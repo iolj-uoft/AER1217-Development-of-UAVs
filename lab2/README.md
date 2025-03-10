@@ -37,8 +37,8 @@ This lab involves designing a **quadrotor position controller** and implementing
 - **Changes:**
   - Constructed a PD controller for thrust output.
   - Implemented $a_{des} = a_{fb} + a_{ref} + g\mathbf{z}_w$ (Task 1).
-  - Completed thrust calculation using $c_{cmd} = m||\mathbf{a}_{des}||$(Equation 3).
-  - Computed desired orientation using Equations (5)–(7) given in the LAB handout.
+  - Completed thrust calculation using $c_{cmd} = m||\mathbf{a}_{des}||$(Equation 3). (Task 2)
+  - Computed desired orientation using Equations (5)–(7) given in the LAB handout. (Task 3)
 - **Impact:**
   - Enables proper UAV **position tracking and stability**.
 
