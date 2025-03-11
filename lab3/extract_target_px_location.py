@@ -11,15 +11,15 @@ def extract_target_px_location(image, plot=False):
 
     Returns:
         circle_px_coords: a list of circle pixel coordinates in tuple (x, y), if no circle in an image then return -1
-        image: undistorted image
+        image: undistorted image with labelled circles 
     """
     
     greyed_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred_image = cv2.GaussianBlur(greyed_image, (3, 3), sigmaX=0)
     rows = blurred_image.shape[0]
-    circles = cv2.HoughCircles(blurred_image, cv2.HOUGH_GRADIENT, 1, rows / 16, param1=100, param2=32, minRadius=10, maxRadius=28)
+    circles = cv2.HoughCircles(blurred_image, cv2.HOUGH_GRADIENT, 1, rows / 16, param1=100, param2=32, minRadius=10, maxRadius=26)
     circle_px_coords = []
-    if circles is not None and circles.all() != None:
+    if circles is not None:
         circles = np.uint16(np.around(circles))
         for i in circles[0, :]:
                 center = (i[0], i[1])
@@ -42,5 +42,5 @@ if __name__ == "__main__":
         circle_px_coordinates, image = extract_target_px_location(image, True)
         print(f"{filename}: {circle_px_coordinates}")
         cv2.imshow("Image", image)
-        cv2.waitKey(10)  # Display each image for 20 ms
+        cv2.waitKey(15)  # Display each image for 20 ms
     cv2.destroyAllWindows()
