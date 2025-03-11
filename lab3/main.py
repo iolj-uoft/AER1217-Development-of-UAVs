@@ -8,15 +8,15 @@ from extract_target_px_location import extract_target_px_location
 from undistort_image import undistort_image
 import transformations as tf
 
-def main(show_video=False):
-    pose_csv = pd.read_csv("lab3/lab3_pose.csv")
+def main(image_folder_path, csv_path, show_video=False):
+    pose_csv = pd.read_csv(csv_path)
     pose_csv = pose_csv.iloc[:, 1:].to_numpy()
     
-    image_folder = "lab3/output_folder"
+    image_folder_path = "lab3/output_folder"
     target_coordinates = []
     
     for i in range(pose_csv.shape[0]):
-        image_path = os.path.join(image_folder, f"image_{i}.jpg")
+        image_path = os.path.join(image_folder_path, f"image_{i}.jpg")
         image = cv2.imread(image_path)
         if image is None: 
             print(f"Image {image_path} not found.")
@@ -71,4 +71,7 @@ def main(show_video=False):
     plt.show()
     
 if __name__ == "__main__":
-    main(show_video=False)
+    csv_path = "lab3/lab3_pose.csv"
+    image_folder_path = "lab3/output_folder"
+    
+    main(image_folder_path, csv_path, show_video=False)
