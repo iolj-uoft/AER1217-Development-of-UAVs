@@ -12,7 +12,6 @@ def main(image_folder_path, csv_path, show_video=False):
     pose_csv = pd.read_csv(csv_path)
     pose_csv = pose_csv.iloc[:, 1:].to_numpy()
     
-    image_folder_path = "lab3/output_folder"
     target_coordinates = []
     
     for i in range(pose_csv.shape[0]):
@@ -71,7 +70,7 @@ def main(image_folder_path, csv_path, show_video=False):
     plt.show()
     
 if __name__ == "__main__":
-    csv_path = "lab3/lab3_pose.csv"
     image_folder_path = "lab3/output_folder"
+    csv_path = "lab3/lab3_pose.csv"
     
-    main(image_folder_path, csv_path, show_video=False)
+    main(image_folder_path, csv_path, show_video=True)
