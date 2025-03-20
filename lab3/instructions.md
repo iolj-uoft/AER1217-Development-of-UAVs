@@ -62,7 +62,6 @@ cv2.waitKey(0)
 #### **(a) Image Coordinates → 3D Camera Frame**
 - Use the **camera intrinsic matrix (K)** to get normalized coordinates:
   $X_c = \frac{(u - c_x)}{f_x}, \quad Y_c = \frac{(v - c_y)}{f_y}, \quad Z_c = 1$
-  
   - $( u, v )$ = detected pixel location
   - $( (c_x, c_y) = (306.91, 150.34) )$ (principal point from K)
   - $( (f_x, f_y) = (698.86, 699.13) )$ (focal lengths)
