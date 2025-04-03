@@ -39,7 +39,6 @@ def main():
                     # baseline, focalLength,   fx,        fy,       cu,       cv
     cam = StereoCamera(0.537,    721.5377, 721.5377, 721.5377, 609.5593, 172.8540)
     vo = VisualOdometry(cam)
-
     # global transform to camera (starts as identity)
     T = np.eye(4)
     T_hist = np.zeros((sequence_num, 4, 4))
@@ -72,7 +71,12 @@ def main():
 
     T_cam_center_to_imu = np.linalg.inv(T_imu_to_cam_center)
     
-    # initialization offset: The ground truth data of the vehicle starts with (0, 0, 0) in GPS/IMU frame. But in the VO estimation, we set initial position of the stereo-camera's center as (0,0,0) using initial r. Therefore, we convert the ground truth data to camera center position in GPS frame with (0, 0, 0) as the initial position.  The convertion is done by translation vector t_cv_v.
+    '''
+    initialization offset: The ground truth data of the vehicle starts with (0, 0, 0) in GPS/IMU frame. 
+    Hi But in the VO estimation, we set initial position of the stereo-camera's center as (0,0,0) using initial r. 
+    Therefore, we convert the ground truth data to camera center position in GPS frame with (0, 0, 0) as the initial position.  
+    The convertion is done by translation vector t_cv_v.
+    '''
 
     # translation from vehicle frame to camera center frame expressed in vehicle frame (from Kitti website)
     t_cv_v = np.array([1.09, -0.32-0.537/2.0, 0.8])
@@ -106,7 +110,7 @@ def main():
                                 np.array([[0,0,0,1]]) ))
         T = T_update.dot(T)
         # Store the history of transformation matrix
-        T_hist[img_id]=T
+        T_hist[img_id] = T
         # convert to vehicle frame
         T_vehicle[img_id] = T_cam_center_to_imu.dot(np.linalg.inv(T_hist[img_id]))
         
@@ -120,6 +124,7 @@ def main():
     cv.destroyAllWindows()
     
     # save the estimated transformation matrix 
+    T_vehicle[:, 0] *= -1
     np.save('VO_T.npy', T_vehicle)
 
     fig_traj = plt.figure(facecolor = "white")

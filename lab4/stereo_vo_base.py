@@ -114,19 +114,61 @@ class VisualOdometry:
         return features_coor
     
     def pose_estimation(self, features_coor):
-        # dummy C and r
-        C = np.eye(3)
-        r = np.array([0,0,0])
-        # feature in right img (without filtering)
-        f_r_prev, f_r_cur = features_coor[:,2:4], features_coor[:,6:8]
-        # ------------- start your code here -------------- #
-        
-        
-        
-        
-        
-        
-        
+        cam = self.cam
+        fx, fy, cu, cv, B = cam.fx, cam.fy, cam.cu, cam.cv, cam.baseline
+
+        def triangulate(ul, ur, vl):
+            disparity = ul - ur
+            z = fx * B / disparity
+            x = (ul - cu) * z / fx
+            y = (vl - cv) * z / fy
+            return np.vstack((x, y, z)).T
+
+        # 3D points from previous and current stereo pairs
+        p3d_a = triangulate(features_coor[:,0], features_coor[:,2], features_coor[:,1])  # previous
+        p3d_b = triangulate(features_coor[:,4], features_coor[:,6], features_coor[:,5])  # current
+
+        best_inliers = []
+        max_inliers = 0
+        threshold = 0.1  # in meters
+        N_trials = 400
+
+        for _ in range(N_trials):
+            ids = np.random.choice(len(p3d_a), 3, replace=False)
+            A = p3d_a[ids]
+            B = p3d_b[ids]
+
+            # Compute transform using centroids and SVD
+            A_mean, B_mean = A.mean(0), B.mean(0)
+            A_centered, B_centered = A - A_mean, B - B_mean
+            W = B_centered.T @ A_centered
+            U, _, Vt = np.linalg.svd(W)
+            R = Vt.T @ np.diag([1, 1, np.linalg.det(Vt.T @ U.T)]) @ U.T
+            t = -R @ B_mean + A_mean
+
+            # Apply transformation and compute residuals
+            p3d_b_transformed = (R @ p3d_b.T).T + t
+            residuals = np.linalg.norm(p3d_a - p3d_b_transformed, axis=1)
+            inliers = np.where(residuals < threshold)[0]
+
+            if len(inliers) > max_inliers:
+                max_inliers = len(inliers)
+                best_inliers = inliers
+
+        # Final estimation using best inliers
+        A = p3d_a[best_inliers]
+        B = p3d_b[best_inliers]
+        A_mean, B_mean = A.mean(0), B.mean(0)
+        A_centered, B_centered = A - A_mean, B - B_mean
+        W = B_centered.T @ A_centered
+        U, _, Vt = np.linalg.svd(W)
+        C = Vt.T @ np.diag([1, 1, np.linalg.det(Vt.T @ U.T)]) @ U.T
+        r = -C @ B_mean + A_mean
+        r = r.reshape(3,1)
+
+        # Return only inlier feature matches (right images)
+        f_r_prev = features_coor[best_inliers,2:4]
+        f_r_cur  = features_coor[best_inliers,6:8]
         # replace (1) the dummy C and r to the estimated C and r. 
         #         (2) the original features to the filtered features
         return C, r, f_r_prev, f_r_cur
