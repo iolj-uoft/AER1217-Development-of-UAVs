@@ -14,11 +14,20 @@ class RRTStarNode:
         self.parent = None
         self.cost = 0.0
         
-def offset_from_yaw(x, y, yaw, dist=0.6):
+def offset_from_yaw(x, y, yaw, dist=0.4):
     """Returns a point dist meters before (x, y) along -yaw direction."""
-    dx = -dist * math.cos(yaw)
-    dy = -dist * math.sin(yaw)
+    yaw -= np.pi / 2
+    dx = dist * math.cos(yaw)
+    dy = dist * math.sin(yaw)
     return (x + dx, y + dy)
+
+def double_offset_from_yaw(x, y, yaw, d1=0.5, d2=0.25):
+    yaw -= np.pi / 2
+    dx1 = d1 * np.cos(yaw)
+    dy1 = d1 * np.sin(yaw)
+    dx2 = d2 * np.cos(yaw)
+    dy2 = d2 * np.sin(yaw)
+    return (x + dx1, y + dy1), (x + dx2, y + dy2)
 
 def is_line_collision_free(p1, p2, obstacles):
     x1, y1 = p1
@@ -136,17 +145,4 @@ def plan_path_rrtstar(start, goal, obstacles, bounds,
         path.append((node.x, node.y))
         node = node.parent
     path.reverse()
-    return path
-
-def global_rrt_star(start, guide_points, obstacles, bounds,
-                    max_iter=2000, step_size=0.4, radius=1.0):
-    """Plan through all waypoints with global context."""
-    path = [start]
-    for i in range(len(guide_points)):
-        seg_start = path[-1]
-        seg_goal = guide_points[i]
-        seg_path = plan_path_rrtstar(seg_start, seg_goal, obstacles, bounds,
-                                     max_iter=max_iter//len(guide_points))
-        if len(seg_path) > 1:
-            path.extend(seg_path[1:])
     return path
