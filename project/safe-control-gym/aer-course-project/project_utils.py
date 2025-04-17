@@ -308,7 +308,7 @@ def plot_trajectory(t_scaled,
     ax.set_ylim([-3.5, 3.5])
     ax.set_zlim([0.0, 2.0])
     plt.show(block=False)
-    plt.pause(2)
+    input("Press Enter to Continue...")
     plt.close()
 
 def draw_trajectory(initial_info,

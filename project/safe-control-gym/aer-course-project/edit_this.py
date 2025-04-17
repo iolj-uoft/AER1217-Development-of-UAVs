@@ -29,6 +29,7 @@ Tips:
 import numpy as np
 
 from collections import deque
+from scipy.interpolate import CubicHermiteSpline
 
 try:
     from project_utils import Command, PIDController, timing_step, timing_ep, plot_trajectory, draw_trajectory
@@ -92,6 +93,7 @@ class Controller():
         # Store a priori scenario information.
         # plan the trajectory based on the information of the (1) gates and (2) obstacles. 
         self.NOMINAL_GATES = initial_info["nominal_gates_pos_and_type"]
+        print(self.NOMINAL_GATES)
         self.NOMINAL_OBSTACLES = initial_info["nominal_obstacles_pos"]
 
         # Check for pycffirmware.
@@ -120,48 +122,83 @@ class Controller():
 
 
     def planning(self, use_firmware, initial_info):
-        """Trajectory planning algorithm"""
+        """Trajectory planning algorithm with global RRT*, yaw-aligned gates, smoothing, and Hermite interpolation."""
         #########################
         # REPLACE THIS (START) ##
         #########################
-        ## generate waypoints for planning
 
-        # Call a function in module `example_custom_utils`.
-        ecu.exampleFunction()
+        import example_custom_utils as ecu
 
-        # initial waypoint
-        if use_firmware:
-            waypoints = [(self.initial_obs[0], self.initial_obs[2], initial_info["gate_dimensions"]["tall"]["height"])]  # Height is hardcoded scenario knowledge.
-        else:
-            waypoints = [(self.initial_obs[0], self.initial_obs[2], self.initial_obs[4])]
+        # Parameters
+        Z_FIXED = 1.0
+        pre_gate_offset = 0.3
+        bounds = [(-3.5, 3.5), (-3.5, 3.5)]
 
-        # Example code: hardcode waypoints 
-        waypoints.append((-0.5, -3.0, 2.0))
-        waypoints.append((-0.5, -2.0, 2.0))
-        waypoints.append((-0.5, -1.0, 2.0))
-        waypoints.append((-0.5,  0.0, 2.0))
-        waypoints.append((-0.5,  1.0, 2.0))
-        waypoints.append((-0.5,  2.0, 2.0))
-        waypoints.append([initial_info["x_reference"][0], initial_info["x_reference"][2], initial_info["x_reference"][4]])
+        # Extract start and goal
+        start = (self.initial_obs[0], self.initial_obs[2])
+        goal = (initial_info["x_reference"][0], initial_info["x_reference"][2])
 
-        # Polynomial fit.
+        # Extract gate info
+        gates = []
+        for gate in self.NOMINAL_GATES:
+            gx, gy, yaw = gate[0], gate[1], gate[5]
+            pre_gate = ecu.offset_from_yaw(gx, gy, yaw, dist=pre_gate_offset)
+            gates.append(pre_gate)
+            gates.append((gx, gy))
+        gates.append(goal)
+
+        # Extract obstacles
+        obstacles = [(obs[0], obs[1], 0.3) for obs in self.NOMINAL_OBSTACLES]
+
+        # Plan global path
+        waypoints_2d = ecu.global_rrt_star(start, gates, obstacles, bounds)
+
+        # Optional shortcut smoothing
+        # waypoints_2d = ecu.shortcut_smooth(waypoints_2d, obstacles, ecu.is_line_collision_free)
+
+        # Convert 2D to 3D
+        waypoints = [(x, y, Z_FIXED) for x, y in waypoints_2d]
         self.waypoints = np.array(waypoints)
-        deg = 6
-        t = np.arange(self.waypoints.shape[0])
-        fx = np.poly1d(np.polyfit(t, self.waypoints[:,0], deg))
-        fy = np.poly1d(np.polyfit(t, self.waypoints[:,1], deg))
-        fz = np.poly1d(np.polyfit(t, self.waypoints[:,2], deg))
-        duration = 15
-        t_scaled = np.linspace(t[0], t[-1], int(duration*self.CTRL_FREQ))
-        self.ref_x = fx(t_scaled)
-        self.ref_y = fy(t_scaled)
-        self.ref_z = fz(t_scaled)
+
+        # Smooth interpolation using cubic Hermite per segment
+        self.ref_x = []
+        self.ref_y = []
+        self.ref_z = []
+        t_scaled = []
+
+        segment_duration = 1.5
+        samples_per_segment = int(segment_duration * self.CTRL_FREQ)
+        total_time = 0
+
+        for i in range(len(self.waypoints) - 1):
+            p0, p1 = self.waypoints[i], self.waypoints[i + 1]
+            v = (p1 - p0) / segment_duration
+
+            t_nodes = [0, segment_duration]
+            x_spline = CubicHermiteSpline(t_nodes, [p0[0], p1[0]], [v[0], v[0]])
+            y_spline = CubicHermiteSpline(t_nodes, [p0[1], p1[1]], [v[1], v[1]])
+            z_spline = CubicHermiteSpline(t_nodes, [p0[2], p1[2]], [v[2], v[2]])
+
+            t_local = np.linspace(0, segment_duration, samples_per_segment)
+            for t in t_local:
+                self.ref_x.append(x_spline(t))
+                self.ref_y.append(y_spline(t))
+                self.ref_z.append(z_spline(t))
+                t_scaled.append(total_time + t)
+
+            total_time += segment_duration
+
+        self.ref_x = np.array(self.ref_x)
+        self.ref_y = np.array(self.ref_y)
+        self.ref_z = np.array(self.ref_z)
+        t_scaled = np.array(t_scaled)
 
         #########################
         # REPLACE THIS (END) ####
         #########################
-
         return t_scaled
+
+
 
     def cmdFirmware(self,
                     time,
