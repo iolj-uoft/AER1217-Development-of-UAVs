@@ -7,6 +7,40 @@ import numpy as np
 import random
 import math
 
+def get_gate_edge_buffers(x, y, yaw, width=0.64, thickness=0.12, buffer_radius=0.1):
+    """
+    Returns a list of (x, y, r) circles that approximate buffered gate edges.
+    """
+    c, s = np.cos(yaw), np.sin(yaw)
+    R = np.array([[c, -s], [s, c]])
+
+    hw, ht = width / 2, thickness / 2
+    corners = np.array([
+        [-hw, -ht],
+        [ hw, -ht],
+        [ hw,  ht],
+        [-hw,  ht]
+    ])
+    world_corners = np.dot(corners, R.T) + np.array([x, y])
+    edge_buffers = []
+
+    for i in range(4):
+        p1 = world_corners[i]
+        p2 = world_corners[(i + 1) % 4]
+        # Discretize each edge into N points
+        N = 10
+        for t in np.linspace(0, 1, N):
+            px = p1[0] + t * (p2[0] - p1[0])
+            py = p1[1] + t * (p2[1] - p1[1])
+            edge_buffers.append((px, py, buffer_radius))
+    
+    return edge_buffers
+
+def is_segment_intersect(p1, p2, q1, q2):
+    def ccw(a, b, c):
+        return (c[1] - a[1]) * (b[0] - a[0]) > (b[1] - a[1]) * (c[0] - a[0])
+    return ccw(p1, q1, q2) != ccw(p2, q1, q2) and ccw(p1, p2, q1) != ccw(p1, p2, q2)
+
 class RRTStarNode:
     def __init__(self, x, y):
         self.x = x
@@ -14,31 +48,30 @@ class RRTStarNode:
         self.parent = None
         self.cost = 0.0
         
-def offset_from_yaw(x, y, yaw, dist=0.4):
-    """Returns a point dist meters before (x, y) along -yaw direction."""
+def offset_from_yaw(x, y, yaw, dist=0.3):
+    """Returns a point dist meters before and after (x, y) along -yaw direction."""
     yaw -= np.pi / 2
     dx = dist * math.cos(yaw)
     dy = dist * math.sin(yaw)
-    return (x + dx, y + dy)
+    return (x + dx, y + dy), (x - dx, y - dy)
 
-def double_offset_from_yaw(x, y, yaw, d1=0.5, d2=0.25):
-    yaw -= np.pi / 2
-    dx1 = d1 * np.cos(yaw)
-    dy1 = d1 * np.sin(yaw)
-    dx2 = d2 * np.cos(yaw)
-    dy2 = d2 * np.sin(yaw)
-    return (x + dx1, y + dy1), (x + dx2, y + dy2)
-
-def is_line_collision_free(p1, p2, obstacles):
+def is_line_collision_free(p1, p2, obstacles, gate_edges=[]):
+    SAFE_MARGIN = 0.0
     x1, y1 = p1
     x2, y2 = p2
-    steps = max(1, int(np.hypot(x2 - x1, y2 - y1) / 0.05))
+    steps = min(1000, max(1, int(np.hypot(x2 - x1, y2 - y1) / 0.05)))
+
     for i in range(steps + 1):
         x = x1 + (x2 - x1) * i / steps
         y = y1 + (y2 - y1) * i / steps
         for ox, oy, r in obstacles:
-            if np.hypot(x - ox, y - oy) <= r:
+            if np.hypot(x - ox, y - oy) <= (r + SAFE_MARGIN):
                 return False
+
+    for edge in gate_edges:
+        if is_segment_intersect(p1, p2, edge[0], edge[1]):
+            return False
+
     return True
 
 def shortcut_smooth(path, obstacles, is_collision_free_fn):
@@ -53,8 +86,8 @@ def shortcut_smooth(path, obstacles, is_collision_free_fn):
     return new_path
 
 def plan_path_rrtstar(start, goal, obstacles, bounds,
-                      max_iter=1000,
-                      step_size=0.2,
+                      max_iter=500,
+                      step_size=0.1,
                       goal_sample_rate=0.1,
                       search_radius=1.0):
     min_x, max_x = bounds[0]
@@ -102,8 +135,10 @@ def plan_path_rrtstar(start, goal, obstacles, bounds,
     def find_nearby(node_list, new_node):
         return [n for n in node_list if distance(n, new_node) <= search_radius]
 
-    for _ in range(max_iter):
+    for i in range(max_iter):
+        print(f"[RRT*] Sampling node {i}")
         rnd = sample()
+        print(f"[RRT*] Finding nearest")
         nearest = find_nearest(nodes, rnd)
         new_node = steer(nearest, rnd)
 

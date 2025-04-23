@@ -29,7 +29,6 @@ Tips:
 import numpy as np
 
 from collections import deque
-from scipy.interpolate import CubicHermiteSpline
 
 try:
     from project_utils import Command, PIDController, timing_step, timing_ep, plot_trajectory, draw_trajectory
@@ -93,7 +92,7 @@ class Controller():
         # Store a priori scenario information.
         # plan the trajectory based on the information of the (1) gates and (2) obstacles. 
         self.NOMINAL_GATES = initial_info["nominal_gates_pos_and_type"]
-        print(self.NOMINAL_GATES)
+        print("Gates:", self.NOMINAL_GATES)
         self.NOMINAL_OBSTACLES = initial_info["nominal_obstacles_pos"]
 
         # Check for pycffirmware.
@@ -122,107 +121,127 @@ class Controller():
 
 
     def planning(self, use_firmware, initial_info):
-        """Trajectory planning algorithm"""
-        #########################
-        # REPLACE THIS (START) ##
-        #########################
-
-        import example_custom_utils as ecu  # or from . import example_custom_utils if needed
-
-        # 1. Starting and target positions in 2D
+        
+        # 1. Starting and goal positions (2D)
         start_xy = (self.initial_obs[0], self.initial_obs[2])
         goal_xy = (initial_info["x_reference"][0], initial_info["x_reference"][2])
-        Z_FIXED = 1.0  # Fixed flight height
+        Z_FIXED = 1.0
 
-        # 2. Extract gate center positions (in 2D)
-        gates = []
-        for gate in self.NOMINAL_GATES:
+        # 2. Build gate waypoints using pre/post offsets
+        raw_gates = self.NOMINAL_GATES
+        custom_order = [0, 1, 2, 3, 2, 3]
+        selected_gates = [raw_gates[i] for i in custom_order]
+
+        # Compute (pre, post) offset points for each gate
+        gate_offsets = []
+        for gate in selected_gates:
             gx, gy, gyaw = gate[0], gate[1], gate[5]
-            pre1 = ecu.offset_from_yaw(gx, gy, gyaw)
-            gates.append(pre1)
-            # gates.append(pre2)
-            gates.append((gx, gy))
+            pre, post = ecu.offset_from_yaw(gx, gy, gyaw, dist=0.3)
+            gate_offsets.append((pre, post))
 
-        # 3. Extract obstacles (with safety radius added for uncertainty)
-        obstacles = []
-        for obs in self.NOMINAL_OBSTACLES:
-            x, y = obs[0], obs[1]
-            obstacles.append((x, y, 0.2))  # radius = 0.3m as safety buffer
-
-
-        # 4. Define map boundaries
+        # Base obstacles from YAML
+        base_obstacles = [(obs[0], obs[1], 0.4) for obs in self.NOMINAL_OBSTACLES]
         bounds = [(-3.5, 3.5), (-3.5, 3.5)]
 
-        # 5. Chain RRT* path planning through each gate + final goal
         waypoints_2d = [start_xy]
-        for gate in gates:
-            path = ecu.plan_path_rrtstar(waypoints_2d[-1], gate, obstacles, bounds)
-            waypoints_2d.extend(path[1:])  # avoid duplicate point
 
-        path = ecu.plan_path_rrtstar(waypoints_2d[-1], goal_xy, obstacles, bounds)
+        for i in range(len(gate_offsets)):
+            pre, post = gate_offsets[i]
+            print(f"[INFO] Planning from {waypoints_2d[-1]} to pre-gate {i}: {pre}")
+
+            # ---------- Plan to pre-gate ----------
+            gate_buffer_obstacles = []
+            seen = set()
+
+            for j, other_gate in enumerate(selected_gates):
+                gx, gy, gyaw = other_gate[0], other_gate[1], other_gate[5]
+                if j == i or (gx, gy) in seen:
+                    continue
+                seen.add((gx, gy))
+                gate_buffer_obstacles.extend(ecu.get_gate_edge_buffers(gx, gy, gyaw))
+
+            dynamic_obstacles = base_obstacles + gate_buffer_obstacles
+
+            path = ecu.plan_path_rrtstar(waypoints_2d[-1], pre, dynamic_obstacles, bounds,
+                                         max_iter=5000, step_size=0.1,
+                                         goal_sample_rate=0.4, search_radius=1.5)
+            if len(path) < 2:
+                raise RuntimeError(f"Failed to find path to pre-gate {i}")
+            path = ecu.shortcut_smooth(
+                path,
+                dynamic_obstacles,
+                lambda p1, p2, obs: ecu.is_line_collision_free(p1, p2, obs)
+            )
+            waypoints_2d.extend(path[1:])
+
+            # ---------- Plan through gate (pre → post) ----------
+            if ecu.is_line_collision_free(pre, post, base_obstacles):
+                waypoints_2d.extend([post])
+            else:
+                path = ecu.plan_path_rrtstar(pre, post, base_obstacles, bounds,
+                                             max_iter=1000, step_size=0.15,
+                                             goal_sample_rate=0.3, search_radius=1.5)
+                if len(path) < 2:
+                    raise RuntimeError(f"Failed to pass through gate {i}")
+                path = ecu.shortcut_smooth(path, base_obstacles, ecu.is_line_collision_free)
+                waypoints_2d.extend(path[1:])
+
+        # ---------- Final segment to goal ----------
+        path = ecu.plan_path_rrtstar(waypoints_2d[-1], goal_xy, base_obstacles, bounds,
+                                     max_iter=1500, step_size=0.15,
+                                     goal_sample_rate=0.3, search_radius=1.5)
+        if len(path) < 2:
+            raise RuntimeError("Failed to find path to final goal")
+        path = ecu.shortcut_smooth(
+            path,
+            base_obstacles,
+            lambda p1, p2, obs: ecu.is_line_collision_free(p1, p2, obs)
+        )
         waypoints_2d.extend(path[1:])
 
-        # 6. Convert 2D -> 3D (fixed height)
-        waypoints = [(x, y, Z_FIXED) for x, y in waypoints_2d]
-        self.waypoints = np.array(waypoints)
+        # 5. Convert to 3D
+        waypoints = np.array([(x, y, Z_FIXED) for x, y in waypoints_2d])
+        self.waypoints = waypoints
 
-        from scipy.interpolate import CubicSpline
+        # 6. Estimate tangents for Hermite interpolation
+        tangent_scale = 0.8
+        tangents = np.zeros_like(waypoints)
+        tangents[1:-1] = (waypoints[2:] - waypoints[:-2]) * 0.5 * tangent_scale
+        tangents[0] = (waypoints[1] - waypoints[0]) * tangent_scale
+        tangents[-1] = (waypoints[-1] - waypoints[-2]) * tangent_scale
 
-        # Create time vector: one t value per waypoint
-        t = np.linspace(0, 1, len(self.waypoints))
-        waypoints = np.array(self.waypoints)
+        # 7. Hermite interpolation using NumPy only
+        samples_per_segment = 20
+        ref_x, ref_y, ref_z = [], [], []
 
-        # Create splines (position-only, no velocity constraints yet)
-        fx = CubicSpline(t, waypoints[:, 0], bc_type='natural')
-        fy = CubicSpline(t, waypoints[:, 1], bc_type='natural')
-        fz = CubicSpline(t, waypoints[:, 2], bc_type='natural')
+        for i in range(len(waypoints) - 1):
+            p0, p1 = waypoints[i], waypoints[i+1]
+            v0, v1 = tangents[i], tangents[i+1]
 
-        # Sample trajectory over time
-        duration = 15  # seconds
-        t_scaled = np.linspace(0, 1, int(duration * self.CTRL_FREQ))
+            for s in np.linspace(0, 1, samples_per_segment, endpoint=False):
+                h00 = 2*s**3 - 3*s**2 + 1
+                h10 = s**3 - 2*s**2 + s
+                h01 = -2*s**3 + 3*s**2
+                h11 = s**3 - s**2
+                point = h00*p0 + h10*v0 + h01*p1 + h11*v1
+                ref_x.append(point[0])
+                ref_y.append(point[1])
+                ref_z.append(point[2])
 
-        self.ref_x = fx(t_scaled)
-        self.ref_y = fy(t_scaled)
-        self.ref_z = fz(t_scaled)
-    
-        
-        # # Smooth interpolation using cubic Hermite per segment
-        # self.ref_x = []
-        # self.ref_y = []
-        # self.ref_z = []
-        # t_scaled = []
+        self.ref_x = np.array(ref_x)
+        self.ref_y = np.array(ref_y)
+        self.ref_z = np.array(ref_z)
+        t_scaled = np.linspace(0, len(self.ref_x) / self.CTRL_FREQ, len(self.ref_x))
 
-        # segment_duration = 1.5
-        # samples_per_segment = int(segment_duration * self.CTRL_FREQ)
-        # total_time = 0
+        for x, y in zip(self.ref_x, self.ref_y):
+            for ox, oy, r in base_obstacles:
+                d = np.hypot(x - ox, y - oy)
+                if d < r:
+                    print(f"[WARNING] Trajectory too close to obstacle at ({ox},{oy}), dist={d:.2f}, r={r}")
 
-        # for i in range(len(self.waypoints) - 1):
-        #     p0, p1 = self.waypoints[i], self.waypoints[i + 1]
-        #     v = (p1 - p0) / segment_duration
-
-        #     t_nodes = [0, segment_duration]
-        #     x_spline = CubicHermiteSpline(t_nodes, [p0[0], p1[0]], [v[0], v[0]])
-        #     y_spline = CubicHermiteSpline(t_nodes, [p0[1], p1[1]], [v[1], v[1]])
-        #     z_spline = CubicHermiteSpline(t_nodes, [p0[2], p1[2]], [v[2], v[2]])
-
-        #     t_local = np.linspace(0, segment_duration, samples_per_segment)
-        #     for t in t_local:
-        #         self.ref_x.append(x_spline(t))
-        #         self.ref_y.append(y_spline(t))
-        #         self.ref_z.append(z_spline(t))
-        #         t_scaled.append(total_time + t)
-
-        #     total_time += segment_duration
-
-        # self.ref_x = np.array(self.ref_x)
-        # self.ref_y = np.array(self.ref_y)
-        # self.ref_z = np.array(self.ref_z)
-        # t_scaled = np.array(t_scaled)
-
-        #########################
-        # REPLACE THIS (END) ####
-        #########################
         return t_scaled
+
+
 
 
 
