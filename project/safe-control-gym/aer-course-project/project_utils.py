@@ -79,9 +79,9 @@ class PIDController():
         self.GRAVITY = g * m # The gravitational force (M*g) acting on each drone.
         self.KF = kf
         self.KM = km
-        self.P_COEFF_FOR = p_coeff_for
-        self.I_COEFF_FOR = i_coeff_for
-        self.D_COEFF_FOR = d_coeff_for
+        self.P_COEFF_FOR = np.array([.002, .002, 1.25])
+        self.D_COEFF_FOR = np.array([.001, .001, .05])
+        self.I_COEFF_FOR = np.array([0, 0, 0])
         self.P_COEFF_TOR = p_coeff_tor
         self.I_COEFF_TOR = i_coeff_tor
         self.D_COEFF_TOR = d_coeff_tor
@@ -308,7 +308,6 @@ def plot_trajectory(t_scaled,
     ax.set_ylim([-3.5, 3.5])
     ax.set_zlim([0.0, 2.0])
     plt.show(block=False)
-    input("Press Enter to Continue...")
     plt.close()
 
 def draw_trajectory(initial_info,

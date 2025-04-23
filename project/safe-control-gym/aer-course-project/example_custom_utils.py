@@ -7,7 +7,7 @@ import numpy as np
 import random
 import math
 
-def get_gate_edge_buffers(x, y, yaw, width=0.64, thickness=0.12, buffer_radius=0.1):
+def get_gate_edge_buffers(x, y, yaw, width=0.64, thickness=0.15, buffer_radius=0.10):
     """
     Returns a list of (x, y, r) circles that approximate buffered gate edges.
     """
@@ -35,6 +35,34 @@ def get_gate_edge_buffers(x, y, yaw, width=0.64, thickness=0.12, buffer_radius=0
             edge_buffers.append((px, py, buffer_radius))
     
     return edge_buffers
+
+def get_gate_edges(x, y, yaw, width=0.64, thickness=0.12):
+    """
+    Returns a list of 4 line segments representing a rectangular gate frame
+    centered at (x, y) with rotation yaw.
+    Each segment is a tuple: ((x1, y1), (x2, y2))
+    """
+    import numpy as np
+
+    c, s = np.cos(yaw), np.sin(yaw)
+    R = np.array([[c, -s], [s, c]])
+
+    hw, ht = width / 2, thickness / 2
+    corners = np.array([
+        [-hw, -ht],
+        [ hw, -ht],
+        [ hw,  ht],
+        [-hw,  ht]
+    ])
+    world_corners = np.dot(corners, R.T) + np.array([x, y])
+
+    edges = []
+    for i in range(4):
+        p1 = world_corners[i]
+        p2 = world_corners[(i + 1) % 4]
+        edges.append((tuple(p1), tuple(p2)))
+
+    return edges
 
 def is_segment_intersect(p1, p2, q1, q2):
     def ccw(a, b, c):

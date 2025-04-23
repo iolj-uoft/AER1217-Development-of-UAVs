@@ -92,9 +92,10 @@ class Controller():
         # Store a priori scenario information.
         # plan the trajectory based on the information of the (1) gates and (2) obstacles. 
         self.NOMINAL_GATES = initial_info["nominal_gates_pos_and_type"]
-        print("Gates:", self.NOMINAL_GATES)
         self.NOMINAL_OBSTACLES = initial_info["nominal_obstacles_pos"]
 
+        self.prev_yaw = 0
+        
         # Check for pycffirmware.
         if use_firmware:
             self.ctrl = None
@@ -129,18 +130,18 @@ class Controller():
 
         # 2. Build gate waypoints using pre/post offsets
         raw_gates = self.NOMINAL_GATES
-        custom_order = [0, 1, 2, 3, 2, 3]
+        custom_order = [0, 1, 2, 3]
         selected_gates = [raw_gates[i] for i in custom_order]
 
         # Compute (pre, post) offset points for each gate
         gate_offsets = []
         for gate in selected_gates:
             gx, gy, gyaw = gate[0], gate[1], gate[5]
-            pre, post = ecu.offset_from_yaw(gx, gy, gyaw, dist=0.3)
+            pre, post = ecu.offset_from_yaw(gx, gy, gyaw, dist=0.25)
             gate_offsets.append((pre, post))
 
         # Base obstacles from YAML
-        base_obstacles = [(obs[0], obs[1], 0.4) for obs in self.NOMINAL_OBSTACLES]
+        base_obstacles = [(obs[0], obs[1], 0.25) for obs in self.NOMINAL_OBSTACLES]
         bounds = [(-3.5, 3.5), (-3.5, 3.5)]
 
         waypoints_2d = [start_xy]
@@ -167,11 +168,7 @@ class Controller():
                                          goal_sample_rate=0.4, search_radius=1.5)
             if len(path) < 2:
                 raise RuntimeError(f"Failed to find path to pre-gate {i}")
-            path = ecu.shortcut_smooth(
-                path,
-                dynamic_obstacles,
-                lambda p1, p2, obs: ecu.is_line_collision_free(p1, p2, obs)
-            )
+            # path = ecu.shortcut_smooth(path, dynamic_obstacles, lambda p1, p2, obs: ecu.is_line_collision_free(p1, p2, obs))
             waypoints_2d.extend(path[1:])
 
             # ---------- Plan through gate (pre → post) ----------
@@ -183,7 +180,7 @@ class Controller():
                                              goal_sample_rate=0.3, search_radius=1.5)
                 if len(path) < 2:
                     raise RuntimeError(f"Failed to pass through gate {i}")
-                path = ecu.shortcut_smooth(path, base_obstacles, ecu.is_line_collision_free)
+                path = ecu.shortcut_smooth(path, dynamic_obstacles, ecu.is_line_collision_free)
                 waypoints_2d.extend(path[1:])
 
         # ---------- Final segment to goal ----------
@@ -295,11 +292,30 @@ class Controller():
 
         # [INSTRUCTIONS] Example code for using cmdFullState interface   
         elif iteration >= 3*self.CTRL_FREQ and iteration < 30*self.CTRL_FREQ:
-            step = min(iteration-3*self.CTRL_FREQ, len(self.ref_x) -1)
+            dt = 1.0 / self.CTRL_FREQ
+            step = min(iteration - 3 * self.CTRL_FREQ, len(self.ref_x) - 2)
+            next_step = step + 1
+            prev_step = max(step - 1, 0)
+
             target_pos = np.array([self.ref_x[step], self.ref_y[step], self.ref_z[step]])
-            target_vel = np.zeros(3)
-            target_acc = np.zeros(3)
-            target_yaw = 0.
+
+            target_vel = np.array([
+                (self.ref_x[next_step] - self.ref_x[step]) / dt,
+                (self.ref_y[next_step] - self.ref_y[step]) / dt,
+                (self.ref_z[next_step] - self.ref_z[step]) / dt
+            ])
+
+            target_acc = np.array([
+                (self.ref_x[next_step] - 2 * self.ref_x[step] + self.ref_x[prev_step]) / dt**2,
+                (self.ref_y[next_step] - 2 * self.ref_y[step] + self.ref_y[prev_step]) / dt**2,
+                (self.ref_z[next_step] - 2 * self.ref_z[step] + self.ref_z[prev_step]) / dt**2
+            ])
+            # target_acc = np.zeros(3)
+
+            vx, vy = target_vel[0], target_vel[1]
+            target_yaw = np.arctan2(vy, vx) if np.hypot(vx, vy) > 1e-2 else self.prev_yaw
+            self.prev_yaw = target_yaw  # remember last valid yaw
+
             target_rpy_rates = np.zeros(3)
 
             command_type = Command(1)  # cmdFullState.
