@@ -50,9 +50,9 @@ class PIDController():
                  pwm2rpm_const: float = 4070.3,
                  min_pwm: float = 20000,
                  max_pwm: float = 65535,
-                 p_coeff_for=np.array([.4, .4, 1.25]),
+                 p_coeff_for=np.array([1.5, 1.5, 1.25]),
                  i_coeff_for=np.array([.05, .05, .05]),
-                 d_coeff_for=np.array([.2, .2, .5]),
+                 d_coeff_for=np.array([0.5, 0.5, .5]),
                  p_coeff_tor=np.array([70000., 70000., 60000.]),
                  i_coeff_tor=np.array([.0, .0, 500.]),
                  d_coeff_tor=np.array([20000., 20000., 12000.]),
@@ -79,9 +79,9 @@ class PIDController():
         self.GRAVITY = g * m # The gravitational force (M*g) acting on each drone.
         self.KF = kf
         self.KM = km
-        self.P_COEFF_FOR = np.array([.002, .002, 1.25])
-        self.D_COEFF_FOR = np.array([.001, .001, .05])
-        self.I_COEFF_FOR = np.array([0, 0, 0])
+        self.P_COEFF_FOR = p_coeff_for
+        self.I_COEFF_FOR = i_coeff_for
+        self.D_COEFF_FOR = d_coeff_for
         self.P_COEFF_TOR = p_coeff_tor
         self.I_COEFF_TOR = i_coeff_tor
         self.D_COEFF_TOR = d_coeff_tor

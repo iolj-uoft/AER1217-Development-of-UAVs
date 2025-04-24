@@ -7,7 +7,55 @@ import numpy as np
 import random
 import math
 
-def get_gate_edge_buffers(x, y, yaw, width=0.64, thickness=0.15, buffer_radius=0.10):
+import numpy as np
+
+def ccma_path(points, w_ma=5, w_cc=3):
+    """
+    Curvature-Corrected Moving Average (CCMA) path smoothing.
+    Args:
+        points: Nx2 or Nx3 array of path points
+        w_ma: window size for moving average
+        w_cc: window size for curvature correction
+
+    Returns:
+        Smoothed points (same shape as input)
+    """
+    n = len(points)
+    points = np.array(points)
+    dim = points.shape[1]
+
+    # Step 1: Apply moving average
+    smoothed = np.zeros_like(points)
+    for i in range(n):
+        start = max(i - w_ma, 0)
+        end = min(i + w_ma + 1, n)
+        smoothed[i] = np.mean(points[start:end], axis=0)
+
+    # Step 2: Apply curvature correction
+    corrected = np.copy(smoothed)
+    for i in range(w_cc, n - w_cc):
+        # Tangent vectors
+        v_prev = points[i] - points[i - w_cc]
+        v_next = points[i + w_cc] - points[i]
+        tangent = v_next - v_prev
+
+        # Normal direction (2D or approximate in 3D)
+        if dim == 2:
+            normal = np.array([-tangent[1], tangent[0]])
+        else:  # For 3D use cross product for normal estimate
+            forward = points[i + 1] - points[i]
+            backward = points[i] - points[i - 1]
+            normal = np.cross(forward, backward)
+
+        if np.linalg.norm(normal) > 0:
+            normal /= np.linalg.norm(normal)
+            # Push slightly in the normal direction to counteract curve shrinking
+            correction_strength = 0.5 * np.linalg.norm(tangent) / (2 * w_cc)
+            corrected[i] += correction_strength * normal
+
+    return corrected
+
+def get_gate_edge_buffers(x, y, yaw, width=0.64, thickness=0.15, buffer_radius=0.15):
     """
     Returns a list of (x, y, r) circles that approximate buffered gate edges.
     """

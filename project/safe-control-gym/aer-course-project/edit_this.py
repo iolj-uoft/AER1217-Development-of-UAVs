@@ -93,8 +93,6 @@ class Controller():
         # plan the trajectory based on the information of the (1) gates and (2) obstacles. 
         self.NOMINAL_GATES = initial_info["nominal_gates_pos_and_type"]
         self.NOMINAL_OBSTACLES = initial_info["nominal_obstacles_pos"]
-
-        self.prev_yaw = 0
         
         # Check for pycffirmware.
         if use_firmware:
@@ -130,7 +128,7 @@ class Controller():
 
         # 2. Build gate waypoints using pre/post offsets
         raw_gates = self.NOMINAL_GATES
-        custom_order = [0, 1, 2, 3]
+        custom_order = [0, 1, 2, 3, 1, 3]
         selected_gates = [raw_gates[i] for i in custom_order]
 
         # Compute (pre, post) offset points for each gate
@@ -141,7 +139,7 @@ class Controller():
             gate_offsets.append((pre, post))
 
         # Base obstacles from YAML
-        base_obstacles = [(obs[0], obs[1], 0.25) for obs in self.NOMINAL_OBSTACLES]
+        base_obstacles = [(obs[0], obs[1], 0.4) for obs in self.NOMINAL_OBSTACLES]
         bounds = [(-3.5, 3.5), (-3.5, 3.5)]
 
         waypoints_2d = [start_xy]
@@ -166,9 +164,7 @@ class Controller():
             path = ecu.plan_path_rrtstar(waypoints_2d[-1], pre, dynamic_obstacles, bounds,
                                          max_iter=5000, step_size=0.1,
                                          goal_sample_rate=0.4, search_radius=1.5)
-            if len(path) < 2:
-                raise RuntimeError(f"Failed to find path to pre-gate {i}")
-            # path = ecu.shortcut_smooth(path, dynamic_obstacles, lambda p1, p2, obs: ecu.is_line_collision_free(p1, p2, obs))
+            path = ecu.shortcut_smooth(path, dynamic_obstacles, lambda p1, p2, obs: ecu.is_line_collision_free(p1, p2, obs))
             waypoints_2d.extend(path[1:])
 
             # ---------- Plan through gate (pre → post) ----------
@@ -180,7 +176,7 @@ class Controller():
                                              goal_sample_rate=0.3, search_radius=1.5)
                 if len(path) < 2:
                     raise RuntimeError(f"Failed to pass through gate {i}")
-                path = ecu.shortcut_smooth(path, dynamic_obstacles, ecu.is_line_collision_free)
+                # path = ecu.shortcut_smooth(path, dynamic_obstacles, ecu.is_line_collision_free)
                 waypoints_2d.extend(path[1:])
 
         # ---------- Final segment to goal ----------
@@ -201,7 +197,7 @@ class Controller():
         self.waypoints = waypoints
 
         # 6. Estimate tangents for Hermite interpolation
-        tangent_scale = 0.8
+        tangent_scale = 0.65
         tangents = np.zeros_like(waypoints)
         tangents[1:-1] = (waypoints[2:] - waypoints[:-2]) * 0.5 * tangent_scale
         tangents[0] = (waypoints[1] - waypoints[0]) * tangent_scale
@@ -228,6 +224,11 @@ class Controller():
         self.ref_x = np.array(ref_x)
         self.ref_y = np.array(ref_y)
         self.ref_z = np.array(ref_z)
+
+        # # Unpack back to self.ref_x/y/z
+        smoothed_path = ecu.ccma_path(np.stack([self.ref_x, self.ref_y], axis=1), w_ma=5, w_cc=5)
+        self.ref_x, self.ref_y = smoothed_path[:, 0], smoothed_path[:, 1]
+
         t_scaled = np.linspace(0, len(self.ref_x) / self.CTRL_FREQ, len(self.ref_x))
 
         for x, y in zip(self.ref_x, self.ref_y):
@@ -291,69 +292,77 @@ class Controller():
             args = [height, duration]
 
         # [INSTRUCTIONS] Example code for using cmdFullState interface   
-        elif iteration >= 3*self.CTRL_FREQ and iteration < 30*self.CTRL_FREQ:
-            dt = 1.0 / self.CTRL_FREQ
-            step = min(iteration - 3 * self.CTRL_FREQ, len(self.ref_x) - 2)
-            next_step = step + 1
-            prev_step = max(step - 1, 0)
+        elif iteration >= 3 * self.CTRL_FREQ and iteration < 20 * self.CTRL_FREQ:
+            useVelandAcc = False
+            
+            if useVelandAcc:
+                dt = 1.0 / self.CTRL_FREQ
+                step = min(iteration - 3 * self.CTRL_FREQ, len(self.ref_x) - 2)
+                next_step = step + 1
+                prev_step = max(step - 1, 0)
 
-            target_pos = np.array([self.ref_x[step], self.ref_y[step], self.ref_z[step]])
+                # Position at current step
+                target_pos = np.array([
+                    self.ref_x[step],
+                    self.ref_y[step],
+                    self.ref_z[step]
+                ])
 
-            target_vel = np.array([
-                (self.ref_x[next_step] - self.ref_x[step]) / dt,
-                (self.ref_y[next_step] - self.ref_y[step]) / dt,
-                (self.ref_z[next_step] - self.ref_z[step]) / dt
-            ])
+                # Velocity: finite difference
+                target_vel = np.array([
+                    (self.ref_x[next_step] - self.ref_x[step]) / dt,
+                    (self.ref_y[next_step] - self.ref_y[step]) / dt,
+                    (self.ref_z[next_step] - self.ref_z[step]) / dt
+                ])
+                # Clamp velocity
+                vel_mag = np.linalg.norm(target_vel)
+                if vel_mag > 1.0:
+                    target_vel = target_vel / vel_mag * 1.0
 
-            target_acc = np.array([
-                (self.ref_x[next_step] - 2 * self.ref_x[step] + self.ref_x[prev_step]) / dt**2,
-                (self.ref_y[next_step] - 2 * self.ref_y[step] + self.ref_y[prev_step]) / dt**2,
-                (self.ref_z[next_step] - 2 * self.ref_z[step] + self.ref_z[prev_step]) / dt**2
-            ])
-            # target_acc = np.zeros(3)
+                # Acceleration: second-order finite difference
+                target_acc = np.array([
+                    (self.ref_x[next_step] - 2 * self.ref_x[step] + self.ref_x[prev_step]) / dt**2,
+                    (self.ref_y[next_step] - 2 * self.ref_y[step] + self.ref_y[prev_step]) / dt**2,
+                    (self.ref_z[next_step] - 2 * self.ref_z[step] + self.ref_z[prev_step]) / dt**2
+                ])
+                acc_mag = np.linalg.norm(target_acc)
+                if acc_mag > 1.5:
+                    target_acc = target_acc / acc_mag * 1.5
 
-            vx, vy = target_vel[0], target_vel[1]
-            target_yaw = np.arctan2(vy, vx) if np.hypot(vx, vy) > 1e-2 else self.prev_yaw
-            self.prev_yaw = target_yaw  # remember last valid yaw
+                # Optional: align yaw with direction of travel
+                if np.linalg.norm(target_vel[:2]) > 1e-3:
+                    target_yaw = 0
+                else:
+                    target_yaw = 0.
 
-            target_rpy_rates = np.zeros(3)
+                target_rpy_rates = np.zeros(3)
 
-            command_type = Command(1)  # cmdFullState.
+                command_type = Command(1)  # cmdFullState
+                
+            else: # use the default controller
+                step = min(iteration-3*self.CTRL_FREQ, len(self.ref_x) -1)
+                target_pos = np.array([self.ref_x[step], self.ref_y[step], self.ref_z[step]])
+                target_vel = np.zeros(3)
+                target_acc = np.zeros(3)
+                target_yaw = 0.
+                target_rpy_rates = np.zeros(3)
+
+                command_type = Command(1)  # cmdFullState.
+            
             args = [target_pos, target_vel, target_acc, target_yaw, target_rpy_rates]
-
-        elif iteration == 30*self.CTRL_FREQ:
+            
+        elif iteration == 20*self.CTRL_FREQ:
             command_type = Command(6)  # Notify setpoint stop.
             args = []
 
-       # [INSTRUCTIONS] Example code for using goTo interface 
-        elif iteration == 32*self.CTRL_FREQ+1:
-            x = self.ref_x[-1]
-            y = self.ref_y[-1]
-            z = 1.5 
-            yaw = 0.
-            duration = 2.5
-
-            command_type = Command(5)  # goTo.
-            args = [[x, y, z], yaw, duration, False]
-
-        elif iteration == 33*self.CTRL_FREQ:
-            x = self.initial_obs[0]
-            y = self.initial_obs[2]
-            z = 1.5
-            yaw = 0.
-            duration = 6
-
-            command_type = Command(5)  # goTo.
-            args = [[x, y, z], yaw, duration, False]
-
-        elif iteration == 35*self.CTRL_FREQ:
+        elif iteration == 22*self.CTRL_FREQ:
             height = 0.
             duration = 3
 
             command_type = Command(3)  # Land.
             args = [height, duration]
 
-        elif iteration == 40*self.CTRL_FREQ-1:
+        elif iteration == 25*self.CTRL_FREQ-1:
             command_type = Command(4)  # STOP command to be sent once the trajectory is completed.
             args = []
 
